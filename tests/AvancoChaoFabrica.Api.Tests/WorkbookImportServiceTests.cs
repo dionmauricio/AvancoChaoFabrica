@@ -151,6 +151,57 @@ public sealed class WorkbookImportServiceTests
     }
 
     [Fact]
+    public async Task PreviewAsync_RecognizesProductionCurvesAndProjectTaskSchedules()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var db = new AppDbContext(options);
+        using var workbook = new XLWorkbook();
+
+        var curve = workbook.AddWorksheet("Curva S");
+        SetHeaders(curve, 35,
+            "Dia", "Data", "Peso planejado dia (kg)", "Peso planejado acum. (kg)",
+            "Avanço planejado (%)", "Peso fabricado dia (kg)", "Peso fabricado acum. (kg)",
+            "Avanço fabricado (%)", "Desvio acum. (kg)", "Desvio acum. (%)", "Status",
+            "verde", "vermelho");
+        SetCurveRow(curve, 36, "1", "13/10/2026");
+        SetCurveRow(curve, 37, "2", "14/10/2026");
+
+        var taskSchedule = workbook.AddWorksheet("Base Tarefas");
+        SetHeaders(taskSchedule, 1,
+            "ID MS Project", "Projeto/Área", "Desenho", "Marca/Item", "Nome da Tarefa",
+            "Início", "Término", "Peso planejado (kg)", "Peso fabricado (kg)",
+            "Avanço por peso (%)", "Peso expedido (kg)");
+        taskSchedule.Cell("A2").Value = "48";
+        taskSchedule.Cell("B2").Value = "Estação de Emenda";
+        taskSchedule.Cell("C2").Value = "2011KS-S-500960-REV.0";
+        taskSchedule.Cell("D2").Value = "0960A";
+        taskSchedule.Cell("E2").Value = "Plataforma";
+        taskSchedule.Cell("F2").Value = "13/10/2026";
+        taskSchedule.Cell("G2").Value = "14/10/2026";
+        taskSchedule.Cell("H2").Value = "498,8";
+        taskSchedule.Cell("I2").Value = "250";
+        taskSchedule.Cell("J2").Value = "50%";
+        taskSchedule.Cell("K2").Value = "0";
+
+        using var content = new MemoryStream();
+        workbook.SaveAs(content);
+        content.Position = 0;
+
+        var result = await new WorkbookImportService(db)
+            .PreviewAsync("curva-s.xlsx", content, CancellationToken.None);
+
+        Assert.Equal(new[] { "ProductionCurve", "TaskSchedule" },
+            result.Sheets.Select(sheet => sheet.TableType));
+        Assert.Equal(new[] { "Review", "Review" },
+            result.Sheets[0].Rows.Select(row => row.Status));
+        Assert.Equal("Review", Assert.Single(result.Sheets[1].Rows).Status);
+        Assert.Empty(result.SkippedSheets);
+        Assert.Equal(3, await db.ImportedRows.CountAsync());
+    }
+
+    [Fact]
     public async Task PreviewAsync_ReportsTruncatedSampleAndTotalRows()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -192,6 +243,23 @@ public sealed class WorkbookImportServiceTests
         {
             sheet.Cell(row, column + 1).Value = headers[column];
         }
+    }
+
+    private static void SetCurveRow(IXLWorksheet sheet, int row, string day, string date)
+    {
+        sheet.Cell(row, 1).Value = day;
+        sheet.Cell(row, 2).Value = date;
+        sheet.Cell(row, 3).Value = "500";
+        sheet.Cell(row, 4).Value = "500";
+        sheet.Cell(row, 5).Value = "10%";
+        sheet.Cell(row, 6).Value = "250";
+        sheet.Cell(row, 7).Value = "250";
+        sheet.Cell(row, 8).Value = "5%";
+        sheet.Cell(row, 9).Value = "-250";
+        sheet.Cell(row, 10).Value = "-5%";
+        sheet.Cell(row, 11).Value = "Atrasado";
+        sheet.Cell(row, 12).Value = "#N/A";
+        sheet.Cell(row, 13).Value = "#N/A";
     }
 
     private static void AddItem(

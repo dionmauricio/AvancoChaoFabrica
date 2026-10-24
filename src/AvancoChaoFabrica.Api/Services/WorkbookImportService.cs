@@ -41,7 +41,8 @@ public sealed class WorkbookImportService(AppDbContext db)
             {
                 skippedSheets.Add(new SkippedSheetPreview(
                     worksheet.Name,
-                    "No recognized manufacturing, order, supplier-summary, planning, or shipping table header was found."));
+                    "No recognized manufacturing, task schedule, production curve, order, supplier-summary, " +
+                    "planning, or shipping table header was found."));
                 continue;
             }
 
@@ -116,7 +117,8 @@ public sealed class WorkbookImportService(AppDbContext db)
         if (sheets.Count == 0)
         {
             throw new InvalidDataException(
-                "No importable manufacturing, order, supplier-summary, planning, or shipping table was found. " +
+                "No importable manufacturing, task schedule, production curve, order, supplier-summary, " +
+                "planning, or shipping table was found. " +
                 $"Sheets inspected: {string.Join(", ", skippedSheets.Select(x => x.SheetName).Take(10))}.");
         }
 
@@ -194,6 +196,27 @@ public sealed class WorkbookImportService(AppDbContext db)
             x.StartsWith("ORDEM", StringComparison.Ordinal));
         var stageCount = normalized.Count(IsStageHeader);
         var hasProgress = normalized.Any(x => x.Contains("AVANCO", StringComparison.Ordinal));
+        var hasPlannedWeight = normalized.Any(x => x.StartsWith("PESO PLANEJADO", StringComparison.Ordinal));
+        var hasProductionCurve = normalized.Any(x => x is "DIA" or "SEMANA") &&
+                                 normalized.Any(x => x.Contains("AVANCO PLANEJADO", StringComparison.Ordinal)) &&
+                                 normalized.Any(x => x.Contains("AVANCO FABRICADO", StringComparison.Ordinal)) &&
+                                 normalized.Any(x => x.StartsWith("PESO FABRICADO", StringComparison.Ordinal)) &&
+                                 hasPlannedWeight;
+        var hasTaskSchedule = normalized.Any(x => x is "ID MS PROJECT" or "ID TAREFA") &&
+                              normalized.Any(x => x is "NOME DA TAREFA" or "NOME TAREFA") &&
+                              normalized.Any(x => x.StartsWith("INICIO", StringComparison.Ordinal)) &&
+                              normalized.Any(x => x.StartsWith("TERMINO", StringComparison.Ordinal)) &&
+                              hasPlannedWeight;
+
+        if (hasProductionCurve)
+        {
+            return "ProductionCurve";
+        }
+
+        if (hasTaskSchedule)
+        {
+            return "TaskSchedule";
+        }
 
         if (hasSku && hasDescription && hasQuantity && hasWeight &&
             (hasTag || hasPackage || normalized.Any(x => x == "RT")))
@@ -320,10 +343,10 @@ public sealed class WorkbookImportService(AppDbContext db)
     {
         var formulaErrors = new[]
             { "#REF!", "#VALUE!", "#DIV/0!", "#NAME?", "#N/A", "#NUM!", "#NULL!", "#SPILL!", "#CALC!" };
-        var formulaError = values.Values
-            .Where(value => value is not null)
-            .SelectMany(value => formulaErrors.Where(error =>
-                value!.Contains(error, StringComparison.OrdinalIgnoreCase)))
+        var formulaError = values
+            .Where(entry => !IsChartHelperColumn(entry.Key) && entry.Value is not null)
+            .SelectMany(entry => formulaErrors.Where(error =>
+                entry.Value!.Contains(error, StringComparison.OrdinalIgnoreCase)))
             .FirstOrDefault();
         if (formulaError is not null)
         {
@@ -348,6 +371,8 @@ public sealed class WorkbookImportService(AppDbContext db)
                                normalizedHeader.Contains("PERCENT", StringComparison.Ordinal) ||
                                normalizedHeader.EndsWith(" %", StringComparison.Ordinal);
             var isDate = normalizedHeader.StartsWith("DATA", StringComparison.Ordinal) ||
+                         normalizedHeader.StartsWith("INICIO", StringComparison.Ordinal) ||
+                         normalizedHeader.StartsWith("TERMINO", StringComparison.Ordinal) ||
                          normalizedHeader.Contains("PRAZO", StringComparison.Ordinal) ||
                          normalizedHeader.Contains("PREVISAO", StringComparison.Ordinal) ||
                          normalizedHeader.Contains("EMBARQUE", StringComparison.Ordinal);
@@ -360,9 +385,12 @@ public sealed class WorkbookImportService(AppDbContext db)
                     return $"{header} is not a valid percentage.";
                 }
 
-                if (percentage is < 0m or > 100m)
+                var minimumPercentage = normalizedHeader.Contains("DESVIO", StringComparison.Ordinal)
+                    ? -100m
+                    : 0m;
+                if (percentage < minimumPercentage || percentage > 100m)
                 {
-                    return $"{header} must be between 0 and 100%.";
+                    return $"{header} must be between {minimumPercentage} and 100%.";
                 }
 
                 continue;
@@ -399,6 +427,9 @@ public sealed class WorkbookImportService(AppDbContext db)
 
         return null;
     }
+
+    private static bool IsChartHelperColumn(string header) =>
+        Normalize(header) is "VERDE" or "VERMELHO";
 
     private static string? BuildCandidateIdentity(
         IReadOnlyDictionary<string, string?> values,
@@ -454,6 +485,29 @@ public sealed class WorkbookImportService(AppDbContext db)
                 FindValue(values, "RT")?.Trim() ?? "",
                 FindValue(values, "CWP")?.Trim() ?? "",
                 material.Trim());
+        }
+
+        if (tableType == "ProductionCurve")
+        {
+            var period = FindValue(values, "DIA", "SEMANA")?.Trim();
+            var date = FindValue(values, "DATA", "INICIO")?.Trim();
+            return string.IsNullOrWhiteSpace(period) && string.IsNullOrWhiteSpace(date)
+                ? null
+                : $"{period ?? ""}|{date ?? ""}";
+        }
+
+        if (tableType == "TaskSchedule")
+        {
+            var taskId = FindValue(values, "ID MS PROJECT", "ID TAREFA")?.Trim();
+            if (string.IsNullOrWhiteSpace(taskId))
+            {
+                return null;
+            }
+
+            return string.Join("|",
+                FindValue(values, "PROJETO/AREA", "PROJETO AREA", "PROJETO")?.Trim() ?? "",
+                FindValue(values, "DESENHO")?.Trim() ?? "",
+                taskId);
         }
 
         return null;

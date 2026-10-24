@@ -546,8 +546,11 @@ export class AppComponent implements OnInit {
   }
 
   visibleHeaders(sheet: ImportSheet): string[] {
+    const chartHelperHeaders = new Set(['verde', 'vermelho']);
     return sheet.headers.filter(header =>
-      !header.startsWith('COLUMN_') && sheet.rows.some(row => row.values[header] !== null),
+      !header.startsWith('COLUMN_') &&
+      !chartHelperHeaders.has(header.trim().toLocaleLowerCase('pt-BR')) &&
+      sheet.rows.some(row => row.values[header] !== null),
     ).slice(0, 8);
   }
 
@@ -564,6 +567,8 @@ export class AppComponent implements OnInit {
       SupplierSummary: 'Resumo por fornecedor',
       OrderSummary: 'Resumo por ordem',
       PlanningView: 'Visão de programação',
+      ProductionCurve: 'Curva S de produção',
+      TaskSchedule: 'Programação de tarefas',
     };
     return labels[tableType] ?? tableType;
   }
