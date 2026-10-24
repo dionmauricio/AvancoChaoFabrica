@@ -16,10 +16,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<LaborAllocation> LaborAllocations => Set<LaborAllocation>();
     public DbSet<ImportBatch> ImportBatches => Set<ImportBatch>();
     public DbSet<ImportedRow> ImportedRows => Set<ImportedRow>();
+    public DbSet<LocalUser> LocalUsers => Set<LocalUser>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Customer>().HasIndex(x => x.Name);
+        modelBuilder.Entity<LocalUser>().HasIndex(x => x.NormalizedUserName).IsUnique();
         modelBuilder.Entity<Supplier>().HasIndex(x => x.Name);
         modelBuilder.Entity<Project>()
             .HasOne(x => x.Customer)

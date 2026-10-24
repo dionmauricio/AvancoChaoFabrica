@@ -150,3 +150,14 @@ public sealed class ImportedRow
     public string Status { get; set; } = "Review";
     public string? ValidationMessage { get; set; }
 }
+
+public sealed class LocalUser
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public required string UserName { get; set; }
+    public required string NormalizedUserName { get; set; }
+    public required string PasswordHash { get; set; }
+    public string Role { get; set; } = "Operator";
+    public bool IsActive { get; set; } = true;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}

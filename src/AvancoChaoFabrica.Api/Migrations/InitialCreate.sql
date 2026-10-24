@@ -23,6 +23,17 @@ CREATE TABLE "ImportBatches" (
     CONSTRAINT "PK_ImportBatches" PRIMARY KEY ("Id")
 );
 
+CREATE TABLE "LocalUsers" (
+    "Id" uuid NOT NULL,
+    "UserName" text NOT NULL,
+    "NormalizedUserName" text NOT NULL,
+    "PasswordHash" text NOT NULL,
+    "Role" text NOT NULL,
+    "IsActive" boolean NOT NULL,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    CONSTRAINT "PK_LocalUsers" PRIMARY KEY ("Id")
+);
+
 CREATE TABLE "Suppliers" (
     "Id" uuid NOT NULL,
     "Name" text NOT NULL,
@@ -152,6 +163,8 @@ CREATE INDEX "IX_ImportedRows_ImportBatchId" ON "ImportedRows" ("ImportBatchId")
 CREATE INDEX "IX_ItemStageProgress_ProductionItemId_StageCode_ReportDate" ON "ItemStageProgress" ("ProductionItemId", "StageCode", "ReportDate");
 
 CREATE INDEX "IX_LaborAllocations_ProductionOrderId" ON "LaborAllocations" ("ProductionOrderId");
+
+CREATE UNIQUE INDEX "IX_LocalUsers_NormalizedUserName" ON "LocalUsers" ("NormalizedUserName");
 
 CREATE UNIQUE INDEX "IX_OrderStageWeights_ProductionOrderId_StageCode" ON "OrderStageWeights" ("ProductionOrderId", "StageCode");
 

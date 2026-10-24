@@ -1,6 +1,8 @@
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, NgZone, OnInit, inject } from '@angular/core';
+import { OidcSecurityService } from 'angular-auth-oidc-client';
+import { API_BASE_URL, AUTH_MODE, IDENTITY_CONFIG } from './api-config';
 import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 
@@ -92,53 +94,111 @@ interface ImportPreview {
   imports: [CommonModule, FormsModule],
   template: `
     <div class="layout">
-      <aside class="sidebar">
-        <a class="brand" href="/" aria-label="Avanço, início">
-          <span class="brand-mark">A</span>
-          <span>AVANÇO<small>CHÃO DE FÁBRICA</small></span>
-        </a>
-        <div class="nav-label">ACOMPANHAMENTO</div>
-        <a class="nav-item active" href="#dashboard"><span aria-hidden="true">▦</span> Visão geral</a>
-        <a class="nav-item" href="#stages"><span aria-hidden="true">◷</span> Etapas de fabricação</a>
-        <a class="nav-item" href="#imports"><span aria-hidden="true">⇧</span> Importar planilhas</a>
-        <div class="sidebar-footer">Dados rastreáveis<br><span>por ordem, fornecedor e item</span></div>
-      </aside>
-
-      <main id="dashboard" class="main-content">
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">CONTROLE DE PRODUÇÃO</p>
-            <h1>Acompanhamento de avanço</h1>
-            <p class="subtitle">Visão consolidada de fabricação e expedição</p>
+      <div class="browser-shell">
+        <div class="browser-bar" aria-label="Barra de navegação do navegador">
+          <div class="browser-actions">
+            <span class="browser-btn close"></span>
+            <span class="browser-btn minimize"></span>
+            <span class="browser-btn maximize"></span>
           </div>
-          <div class="status-chip" [class.offline]="!apiAvailable">
-            <span class="status-dot"></span> {{ apiAvailable ? 'API conectada' : 'API indisponível' }}
+          <div class="browser-tabs">
+            <span class="browser-tab active">Avanço | Chão de Fábrica</span>
+            <span class="browser-tab">Configuração</span>
+            <span class="browser-tab">Pedidos</span>
           </div>
-        </header>
+          <div class="browser-tools">
+            <span>⟳</span>
+            <span>☰</span>
+          </div>
+        </div>
 
-        <section class="filters card" aria-label="Filtros do painel">
-          <label>Projeto
-            <select [(ngModel)]="projectId" (ngModelChange)="loadDashboard()">
-              <option value="">Todos os projetos</option>
-              <option *ngFor="let project of projects" [value]="project.id">{{ project.name }}</option>
-            </select>
-          </label>
-          <label>Fornecedor
-            <select [(ngModel)]="supplierId" (ngModelChange)="loadDashboard()">
-              <option value="">Todos os fornecedores</option>
-              <option *ngFor="let supplier of suppliers" [value]="supplier.id">{{ supplier.name }}</option>
-            </select>
-          </label>
-          <label>Ordem
-            <select [(ngModel)]="orderId" (ngModelChange)="loadDashboard()">
-              <option value="">Todas as ordens</option>
-              <option *ngFor="let order of filteredOrders" [value]="order.id">
-                {{ order.number }} · {{ order.kind === 0 ? 'OS' : 'OF' }}
-              </option>
-            </select>
-          </label>
-          <button class="button button-quiet" type="button" (click)="clearFilters()">Limpar filtros</button>
-        </section>
+        <div class="workspace-topbar">
+          <div class="address-bar">
+            <span class="nav-arrow">←</span>
+            <span class="nav-arrow">→</span>
+            <span class="nav-arrow">⟳</span>
+            <div class="address-pill">localhost:4200</div>
+          </div>
+          <div class="browser-shortcuts" aria-label="Atalhos do navegador">
+            <span>✦</span>
+            <span>◌</span>
+            <span>◍</span>
+            <span>◎</span>
+          </div>
+        </div>
+
+        <div class="app-layout">
+          <aside class="sidebar">
+            <a class="brand" href="/" aria-label="Avanço, início">
+              <span class="brand-mark">A</span>
+              <span>AVANÇO<small>CHÃO DE FÁBRICA</small></span>
+            </a>
+            <div class="nav-label">ACOMPANHAMENTO</div>
+            <a class="nav-item active" href="#dashboard"><span aria-hidden="true">▦</span> Visão geral</a>
+            <a class="nav-item" href="#stages"><span aria-hidden="true">◷</span> Etapas de fabricação</a>
+            <a class="nav-item" href="#imports"><span aria-hidden="true">⇧</span> Importar planilhas</a>
+            <div class="sidebar-footer">Dados rastreáveis<br><span>por ordem, fornecedor e item</span></div>
+          </aside>
+
+          <main id="dashboard" class="main-content">
+            <header class="topbar">
+              <div>
+                <p class="eyebrow">CONTROLE DE PRODUÇÃO</p>
+                <h1>Acompanhamento de avanço</h1>
+                <p class="subtitle">Visão consolidada de fabricação e expedição</p>
+              </div>
+              <div class="status-chip" [class.offline]="!apiAvailable" role="status" aria-live="polite">
+                <span class="status-dot"></span> {{ checkingApi ? 'Verificando API' : (apiAvailable ? 'API conectada' : 'API indisponível') }}
+              </div>
+              <button *ngIf="!authenticated && identityConfigured" class="button button-primary" type="button" (click)="login()">Entrar com conta corporativa</button>
+              <button *ngIf="authenticated && (identityConfigured || localAuthEnabled)" class="button button-quiet" type="button" (click)="logout()">Sair</button>
+            </header>
+
+            <section *ngIf="!authenticated" class="card login-card" aria-labelledby="login-title">
+              <p class="eyebrow">ACESSO SEGURO</p>
+              <h2 id="login-title">Entrar no sistema</h2>
+              <form *ngIf="localAuthEnabled" (ngSubmit)="loginLocal()" class="login-form">
+                <label>Usuário
+                  <input name="userName" [(ngModel)]="userName" autocomplete="username" required maxlength="100">
+                </label>
+                <label>Senha
+                  <input name="password" type="password" [(ngModel)]="password" autocomplete="current-password" required>
+                </label>
+                <button class="button button-primary" type="submit" [disabled]="authLoading || !apiAvailable">
+                  {{ authLoading ? 'Acessando…' : 'Entrar' }}
+                </button>
+              </form>
+              <p *ngIf="!apiAvailable && !checkingApi" class="login-help api-help">
+                Inicie o backend .NET e verifique se o PostgreSQL está ativo. <button class="text-button" type="button" (click)="checkApiHealth()">Tentar novamente</button>
+              </p>
+              <p *ngIf="identityConfigured" class="login-help">Use sua conta corporativa para continuar.</p>
+              <div *ngIf="authError" class="alert alert-error" role="alert">{{ authError }}</div>
+            </section>
+
+            <ng-container *ngIf="authenticated">
+            <section class="filters card" aria-label="Filtros do painel">
+              <label>Projeto
+                <select [(ngModel)]="projectId" (ngModelChange)="onProjectChange()">
+                  <option value="">Todos os projetos</option>
+                  <option *ngFor="let project of projects" [value]="project.id">{{ project.name }}</option>
+                </select>
+              </label>
+              <label>Fornecedor
+                <select [(ngModel)]="supplierId" (ngModelChange)="onSupplierChange()">
+                  <option value="">Todos os fornecedores</option>
+                  <option *ngFor="let supplier of suppliers" [value]="supplier.id">{{ supplier.name }}</option>
+                </select>
+              </label>
+              <label>Ordem
+                <select [(ngModel)]="orderId" (ngModelChange)="loadDashboard()">
+                  <option value="">Todas as ordens</option>
+                  <option *ngFor="let order of filteredOrders" [value]="order.id">
+                    {{ order.number }} · {{ order.kind === 0 ? 'OS' : 'OF' }}
+                  </option>
+                </select>
+              </label>
+              <button class="button button-quiet" type="button" (click)="clearFilters()">Limpar filtros</button>
+            </section>
 
         <div *ngIf="dashboardError" class="alert alert-error" role="alert">{{ dashboardError }}</div>
         <div *ngIf="loading" class="loading" role="status">Carregando indicadores…</div>
@@ -251,7 +311,7 @@ interface ImportPreview {
                   <tbody>
                     <tr *ngFor="let row of sheet.rows.slice(0, 30)">
                       <td>{{ row.rowNumber }}</td>
-                      <td><span class="row-status" [class.invalid]="row.status !== 'Review'">{{ statusLabel(row.status) }}</span>
+                      <td><span class="row-status" [class.invalid]="row.status === 'Invalid'" [class.possible-duplicate]="row.status === 'PossibleDuplicate'">{{ statusLabel(row.status) }}</span>
                         <small class="row-message" *ngIf="row.message">{{ row.message }}</small>
                       </td>
                       <td *ngFor="let header of visibleHeaders(sheet)">{{ row.values[header] || '—' }}</td>
@@ -271,14 +331,24 @@ interface ImportPreview {
             </div>
           </div>
         </section>
-        <footer>Avanço de fabricação · Dados consolidados por origem e data-base</footer>
-      </main>
+            </ng-container>
+            <footer>Avanço de fabricação · Dados consolidados por origem e data-base</footer>
+          </main>
+        </div>
+      </div>
     </div>
   `,
 })
 export class AppComponent implements OnInit {
   private readonly http = inject(HttpClient);
-  private readonly api = `${window.location.protocol}//${window.location.hostname}:5080/api`;
+  private readonly zone = inject(NgZone);
+  private readonly api = `${inject(API_BASE_URL).replace(/\/$/, '')}/api`;
+  private readonly oidc = inject(AUTH_MODE) === 'oidc'
+    ? inject(OidcSecurityService)
+    : null;
+  readonly identityConfigured = inject(IDENTITY_CONFIG) !== null;
+  readonly localAuthEnabled = !this.identityConfigured;
+  authenticated = false;
 
   projects: Project[] = [];
   suppliers: Supplier[] = [];
@@ -291,9 +361,14 @@ export class AppComponent implements OnInit {
   orderId = '';
   loading = false;
   apiAvailable = false;
+  checkingApi = true;
   importing = false;
   dashboardError = '';
   importError = '';
+  authError = '';
+  authLoading = false;
+  userName = '';
+  password = '';
 
   get filteredOrders(): ProductionOrder[] {
     return this.orders.filter(order =>
@@ -302,6 +377,58 @@ export class AppComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
+    void this.checkApiHealth();
+    try {
+      if (this.oidc) {
+        const authState = await firstValueFrom(this.oidc.checkAuth());
+        this.authenticated = authState.isAuthenticated;
+        if (!this.authenticated) {
+          return;
+        }
+      } else {
+        const token = window.sessionStorage.getItem('avanco-access-token');
+        if (!token) return;
+        try {
+          await firstValueFrom(this.http.get(`${this.api}/auth/me`));
+          this.authenticated = true;
+        } catch {
+          window.sessionStorage.removeItem('avanco-access-token');
+          return;
+        }
+      }
+
+      await this.loadInitialData();
+    } catch (error: unknown) {
+      this.apiAvailable = false;
+      this.dashboardError = this.errorMessage(error, 'Não foi possível conectar à API.');
+    }
+  }
+
+  async checkApiHealth(): Promise<void> {
+    this.checkingApi = true;
+    try {
+      const response = await fetch('/health', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+      if (!response.ok) throw new Error(`Health check failed with HTTP ${response.status}.`);
+      const health = await response.json() as { status: string; database: string };
+      this.zone.run(() => this.apiAvailable = health.status === 'ok' && health.database === 'connected');
+    } catch {
+      this.zone.run(() => this.apiAvailable = false);
+    } finally {
+      this.zone.run(() => this.checkingApi = false);
+    }
+  }
+
+  onProjectChange(): void {
+    if (this.orderId && !this.filteredOrders.some(order => order.id === this.orderId)) this.orderId = '';
+    void this.loadDashboard();
+  }
+
+  onSupplierChange(): void {
+    if (this.orderId && !this.filteredOrders.some(order => order.id === this.orderId)) this.orderId = '';
+    void this.loadDashboard();
+  }
+
+  private async loadInitialData(): Promise<void> {
     try {
       const [projects, suppliers, orders] = await Promise.all([
         firstValueFrom(this.http.get<Project[]>(`${this.api}/projects`)),
@@ -317,6 +444,41 @@ export class AppComponent implements OnInit {
       this.apiAvailable = false;
       this.dashboardError = this.errorMessage(error, 'Não foi possível conectar à API.');
     }
+  }
+
+  async loginLocal(): Promise<void> {
+    this.authLoading = true;
+    this.authError = '';
+    try {
+      const result = await firstValueFrom(this.http.post<{ accessToken: string }>(
+        `${this.api}/auth/login`, { userName: this.userName, password: this.password },
+      ));
+      window.sessionStorage.setItem('avanco-access-token', result.accessToken);
+      this.password = '';
+      this.authenticated = true;
+      await this.loadInitialData();
+    } catch (error: unknown) {
+      this.authError = error instanceof HttpErrorResponse && error.status === 401
+        ? 'Usuário ou senha inválidos.'
+        : this.errorMessage(error, 'Não foi possível autenticar.');
+    } finally {
+      this.authLoading = false;
+    }
+  }
+
+  login(): void {
+    this.oidc?.authorize();
+  }
+
+  async logout(): Promise<void> {
+    if (this.oidc) {
+      await firstValueFrom(this.oidc.logoff());
+    } else {
+      window.sessionStorage.removeItem('avanco-access-token');
+    }
+
+    this.authenticated = false;
+    this.dashboard = null;
   }
 
   async loadDashboard(): Promise<void> {
@@ -348,9 +510,22 @@ export class AppComponent implements OnInit {
 
   onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
-    this.selectedFile = input.files?.[0] ?? null;
+    const file = input.files?.[0] ?? null;
     this.preview = null;
     this.importError = '';
+    if (file && !file.name.toLowerCase().endsWith('.xlsx')) {
+      this.importError = 'Selecione um arquivo Excel no formato .xlsx.';
+      input.value = '';
+      this.selectedFile = null;
+      return;
+    }
+    if (file && file.size > 25 * 1024 * 1024) {
+      this.importError = 'O arquivo excede o limite de 25 MB.';
+      input.value = '';
+      this.selectedFile = null;
+      return;
+    }
+    this.selectedFile = file;
   }
 
   async previewImport(): Promise<void> {
@@ -371,8 +546,11 @@ export class AppComponent implements OnInit {
   }
 
   visibleHeaders(sheet: ImportSheet): string[] {
+    const chartHelperHeaders = new Set(['verde', 'vermelho']);
     return sheet.headers.filter(header =>
-      !header.startsWith('COLUMN_') && sheet.rows.some(row => row.values[header] !== null),
+      !header.startsWith('COLUMN_') &&
+      !chartHelperHeaders.has(header.trim().toLocaleLowerCase('pt-BR')) &&
+      sheet.rows.some(row => row.values[header] !== null),
     ).slice(0, 8);
   }
 
@@ -389,6 +567,8 @@ export class AppComponent implements OnInit {
       SupplierSummary: 'Resumo por fornecedor',
       OrderSummary: 'Resumo por ordem',
       PlanningView: 'Visão de programação',
+      ProductionCurve: 'Curva S de produção',
+      TaskSchedule: 'Programação de tarefas',
     };
     return labels[tableType] ?? tableType;
   }
