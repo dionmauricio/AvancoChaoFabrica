@@ -342,6 +342,45 @@ public sealed class WorkbookImportService(AppDbContext db)
                              normalizedHeader.StartsWith("QTDE", StringComparison.Ordinal) ||
                              normalizedHeader.StartsWith("QUANTIDADE", StringComparison.Ordinal);
             var isWeight = normalizedHeader.StartsWith("PESO", StringComparison.Ordinal);
+            var isPercentage = normalizedHeader.Contains("AVANCO", StringComparison.Ordinal) ||
+                               normalizedHeader.Contains("PERCENTUAL", StringComparison.Ordinal) ||
+                               normalizedHeader.Contains("PERCENTAGEM", StringComparison.Ordinal) ||
+                               normalizedHeader.Contains("PERCENT", StringComparison.Ordinal) ||
+                               normalizedHeader.EndsWith(" %", StringComparison.Ordinal);
+            var isDate = normalizedHeader.StartsWith("DATA", StringComparison.Ordinal) ||
+                         normalizedHeader.Contains("PRAZO", StringComparison.Ordinal) ||
+                         normalizedHeader.Contains("PREVISAO", StringComparison.Ordinal) ||
+                         normalizedHeader.Contains("EMBARQUE", StringComparison.Ordinal);
+
+            if (isPercentage)
+            {
+                var percentageText = value.Trim().TrimEnd('%').Trim();
+                if (!TryParseNumber(percentageText, out var percentage))
+                {
+                    return $"{header} is not a valid percentage.";
+                }
+
+                if (percentage is < 0m or > 100m)
+                {
+                    return $"{header} must be between 0 and 100%.";
+                }
+
+                continue;
+            }
+
+            if (isDate)
+            {
+                if (!DateTime.TryParse(value, CultureInfo.GetCultureInfo("pt-BR"),
+                        DateTimeStyles.AllowWhiteSpaces, out _) &&
+                    !DateTime.TryParse(value, CultureInfo.InvariantCulture,
+                        DateTimeStyles.AllowWhiteSpaces, out _))
+                {
+                    return $"{header} is not a valid date.";
+                }
+
+                continue;
+            }
+
             if (!isQuantity && !isWeight)
             {
                 continue;

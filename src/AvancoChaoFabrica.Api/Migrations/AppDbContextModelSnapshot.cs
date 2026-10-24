@@ -186,6 +186,42 @@ namespace AvancoChaoFabrica.Api.Migrations
                     b.ToTable("LaborAllocations");
                 });
 
+            modelBuilder.Entity("AvancoChaoFabrica.Api.Domain.LocalUser", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("NormalizedUserName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique();
+
+                    b.ToTable("LocalUsers");
+                });
+
             modelBuilder.Entity("AvancoChaoFabrica.Api.Domain.OrderStageWeight", b =>
                 {
                     b.Property<Guid>("Id")
